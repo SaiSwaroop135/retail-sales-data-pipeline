@@ -9,6 +9,7 @@ from extract_sales import (
     validate_sales,
     transform_sales,
     generate_pipeline_summary,
+    generate_data_quality_report,
     save_processed_sales,
     save_rejected_sales
 )
@@ -31,6 +32,10 @@ CLEAN_FILE = BASE_DIR / "data" / "processed" / "clean_sales.csv"
 
 REJECTED_FILE = BASE_DIR / "data" / "processed" / "rejected_sales.csv"
 
+QUALITY_REPORT_FILE = (
+    BASE_DIR / "data" / "processed" / "data_quality_report.csv"
+)
+
 
 # ==========================================
 # COMPLETE ETL PIPELINE
@@ -42,17 +47,14 @@ def run_pipeline():
 
     try:
 
-        # STEP 1: CHECK INPUT FILE
+        # ==================================
+        # STEP 1: EXTRACT SALES DATA
+        # ==================================
 
         if not INPUT_FILE.is_file():
             raise FileNotFoundError(
                 f"Input file not found: {INPUT_FILE}"
             )
-
-        logger.info("Input file found successfully")
-
-
-        # STEP 2: EXTRACT DATA
 
         print("\nSTEP 1: EXTRACTING SALES DATA")
 
@@ -63,7 +65,9 @@ def run_pipeline():
         print("Total Records Extracted:", len(records))
 
 
-        # STEP 3: VALIDATE DATA
+        # ==================================
+        # STEP 2: VALIDATE SALES DATA
+        # ==================================
 
         print("\nSTEP 2: VALIDATING SALES DATA")
 
@@ -79,7 +83,9 @@ def run_pipeline():
         print("Invalid Records:", len(invalid_sales))
 
 
-        # STEP 4: TRANSFORM DATA
+        # ==================================
+        # STEP 3: TRANSFORM SALES DATA
+        # ==================================
 
         print("\nSTEP 3: TRANSFORMING SALES DATA")
 
@@ -93,7 +99,9 @@ def run_pipeline():
         print("Total Transformed Records:", len(clean_sales))
 
 
-        # STEP 5: SAVE PROCESSED FILES
+        # ==================================
+        # STEP 4: SAVE PROCESSED DATA
+        # ==================================
 
         print("\nSTEP 4: SAVING PROCESSED DATA")
 
@@ -107,7 +115,9 @@ def run_pipeline():
         print("Rejected sales data saved successfully!")
 
 
-        # STEP 6: GENERATE PIPELINE SUMMARY
+        # ==================================
+        # STEP 5: GENERATE PIPELINE SUMMARY
+        # ==================================
 
         print("\nSTEP 5: GENERATING PIPELINE SUMMARY")
 
@@ -123,31 +133,76 @@ def run_pipeline():
         )
 
 
-        # STEP 7: LOAD DATA INTO SQLITE
+        # ==================================
+        # STEP 6: DATA QUALITY REPORTING
+        # ==================================
 
-        print("\nSTEP 6: LOADING DATA INTO DATABASE")
+        print("\nSTEP 6: GENERATING DATA QUALITY REPORT")
+
+        quality_report = generate_data_quality_report(
+            records,
+            valid_sales,
+            invalid_sales,
+            QUALITY_REPORT_FILE
+        )
+
+        logger.info(
+            "Data quality report generated successfully"
+        )
+
+        logger.info(
+            "Data quality score: %.2f%%",
+            quality_report["quality_score"]
+        )
+
+        logger.info(
+            "Rejected records: %s",
+            quality_report["invalid_records"]
+        )
+
+        for reason, count in quality_report[
+            "rejection_reasons"
+        ].items():
+            logger.info(
+                "Rejection reason: %s | Count: %s",
+                reason,
+                count
+            )
+
+
+        # ==================================
+        # STEP 7: LOAD DATA INTO SQLITE
+        # ==================================
+
+        print("\nSTEP 7: LOADING DATA INTO DATABASE")
 
         load_sales()
 
         logger.info("Database loading completed")
 
 
+        # ==================================
         # STEP 8: GENERATE SALES ANALYTICS
+        # ==================================
 
-        print("\nSTEP 7: GENERATING SALES ANALYTICS")
+        print("\nSTEP 8: GENERATING SALES ANALYTICS")
 
         analyze_sales()
 
         logger.info("Sales analytics completed")
 
 
+        # ==================================
         # PIPELINE COMPLETED
+        # ==================================
 
         print("\n====================================")
         print("RETAIL SALES ETL PIPELINE COMPLETED")
         print("====================================")
 
-        logger.info("Pipeline execution completed successfully")
+        logger.info(
+            "Pipeline execution completed successfully"
+        )
 
         return True
 

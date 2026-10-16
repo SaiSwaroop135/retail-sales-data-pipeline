@@ -1,6 +1,7 @@
 import csv
 from pathlib import Path
 from decimal import Decimal, InvalidOperation
+from collections import Counter
 
 
 # ==========================================
@@ -14,6 +15,10 @@ CSV_FILE = BASE_DIR / "data" / "raw" / "sales.csv"
 OUTPUT_FILE = BASE_DIR / "data" / "processed" / "clean_sales.csv"
 
 REJECTED_FILE = BASE_DIR / "data" / "processed" / "rejected_sales.csv"
+
+QUALITY_REPORT_FILE = (
+    BASE_DIR / "data" / "processed" / "data_quality_report.csv"
+)
 
 
 # ==========================================
@@ -41,26 +46,41 @@ def validate_sales(transactions):
     invalid_records = []
 
     for row in transactions:
-        order_id = row.get("order_id", "").strip()
-        product = row.get("product", "").strip()
+        reasons = []
 
-        if not order_id or not product:
-            invalid_records.append(row)
-            continue
+        order_id = str(row.get("order_id") or "").strip()
+        product = str(row.get("product") or "").strip()
+
+        if not order_id:
+            reasons.append("Missing order ID")
+        elif not order_id.isdecimal():
+            reasons.append("Order ID must be numeric")
+
+        if not product:
+            reasons.append("Missing product name")
 
         try:
-            quantity = int(row["quantity"])
-            price = Decimal(row["price"])
+            quantity = int(row.get("quantity"))
+            if quantity <= 0:
+                reasons.append("Quantity must be greater than zero")
+        except (ValueError, TypeError):
+            reasons.append("Invalid quantity format")
 
+        try:
+            price = Decimal(row.get("price"))
+            if not price.is_finite():
+                reasons.append("Price must be finite")
+            elif price < 0:
+                reasons.append("Price cannot be negative")
         except (ValueError, TypeError, InvalidOperation):
-            invalid_records.append(row)
-            continue
+            reasons.append("Invalid price format")
 
-        if quantity <= 0 or not price.is_finite() or price < 0:
-            invalid_records.append(row)
-            continue
-
-        valid_records.append(row)
+        if reasons:
+            rejected_row = dict(row)
+            rejected_row["rejection_reason"] = "; ".join(reasons)
+            invalid_records.append(rejected_row)
+        else:
+            valid_records.append(row)
 
     return valid_records, invalid_records
 
@@ -125,22 +145,19 @@ def generate_pipeline_summary(transactions, clean_sales, invalid_sales):
 
 def save_processed_sales(clean_sales, output_file):
 
+    output_file = Path(output_file)
     output_file.parent.mkdir(parents=True, exist_ok=True)
 
+    fieldnames = [
+        "order_id",
+        "product",
+        "quantity",
+        "price",
+        "revenue"
+    ]
+
     with open(output_file, "w", newline="", encoding="utf-8") as file:
-
-        fieldnames = [
-            "order_id",
-            "product",
-            "quantity",
-            "price",
-            "revenue"
-        ]
-
-        writer = csv.DictWriter(
-            file,
-            fieldnames=fieldnames
-        )
+        writer = csv.DictWriter(file, fieldnames=fieldnames)
 
         writer.writeheader()
         writer.writerows(clean_sales)
@@ -152,20 +169,22 @@ def save_processed_sales(clean_sales, output_file):
 
 def save_rejected_sales(invalid_sales, output_file):
 
+    output_file = Path(output_file)
     output_file.parent.mkdir(parents=True, exist_ok=True)
 
+    fieldnames = [
+        "order_id",
+        "product",
+        "quantity",
+        "price",
+        "rejection_reason"
+    ]
+
     with open(output_file, "w", newline="", encoding="utf-8") as file:
-
-        fieldnames = [
-            "order_id",
-            "product",
-            "quantity",
-            "price"
-        ]
-
         writer = csv.DictWriter(
             file,
-            fieldnames=fieldnames
+            fieldnames=fieldnames,
+            extrasaction="ignore"
         )
 
         writer.writeheader()
@@ -173,59 +192,135 @@ def save_rejected_sales(invalid_sales, output_file):
 
 
 # ==========================================
-# STEP 7: MAIN PIPELINE EXECUTION
+# STEP 7: GENERATE DATA QUALITY REPORT
+# ==========================================
+
+def generate_data_quality_report(
+    transactions,
+    valid_sales,
+    invalid_sales,
+    output_file=QUALITY_REPORT_FILE
+):
+    total_records = len(transactions)
+    valid_count = len(valid_sales)
+    invalid_count = len(invalid_sales)
+
+    quality_score = (
+        round((valid_count / total_records) * 100, 2)
+        if total_records > 0
+        else 0.0
+    )
+
+    rejection_counts = Counter()
+
+    for row in invalid_sales:
+        reasons = row.get("rejection_reason", "")
+
+        for reason in reasons.split(";"):
+            reason = reason.strip()
+            if reason:
+                rejection_counts[reason] += 1
+
+    report_rows = [
+        {"metric": "Total Records", "value": total_records},
+        {"metric": "Valid Records", "value": valid_count},
+        {"metric": "Invalid Records", "value": invalid_count},
+        {"metric": "Data Quality Score (%)", "value": quality_score}
+    ]
+
+    for reason, count in sorted(rejection_counts.items()):
+        report_rows.append({
+            "metric": f"Rejection Reason: {reason}",
+            "value": count
+        })
+
+    output_file = Path(output_file)
+    output_file.parent.mkdir(parents=True, exist_ok=True)
+
+    with open(output_file, "w", newline="", encoding="utf-8") as file:
+        writer = csv.DictWriter(
+            file,
+            fieldnames=["metric", "value"]
+        )
+
+        writer.writeheader()
+        writer.writerows(report_rows)
+
+    print("\n===================================")
+    print("DATA QUALITY REPORT")
+    print("===================================")
+    print("Total Records:", total_records)
+    print("Valid Records:", valid_count)
+    print("Invalid Records:", invalid_count)
+    print(f"Data Quality Score: {quality_score:.2f}%")
+
+    print("\nREJECTION REASONS")
+
+    if rejection_counts:
+        for reason, count in sorted(rejection_counts.items()):
+            print(f"{reason}: {count}")
+    else:
+        print("No rejected records")
+
+    print("\nData quality report saved successfully!")
+
+    return {
+        "total_records": total_records,
+        "valid_records": valid_count,
+        "invalid_records": invalid_count,
+        "quality_score": quality_score,
+        "rejection_reasons": dict(rejection_counts)
+    }
+
+
+# ==========================================
+# STEP 8: MAIN PIPELINE EXECUTION
 # ==========================================
 
 def main():
 
-    # Extract
     transactions = extract_sales(CSV_FILE)
 
-    print("Extracted Transactions:")
-
-    for transaction in transactions:
-        print(transaction)
-
+    print("STEP 1: EXTRACTING SALES DATA")
     print("Total Records Extracted:", len(transactions))
 
-    # Validate
     valid_sales, invalid_sales = validate_sales(transactions)
 
-    print("\n--------------------------")
-    print("DATA VALIDATION SUMMARY")
+    print("\nSTEP 2: VALIDATING SALES DATA")
     print("Valid Records:", len(valid_sales))
     print("Invalid Records:", len(invalid_sales))
 
-    # Transform
     clean_sales = transform_sales(valid_sales)
 
-    print("\n--------------------------")
-    print("TRANSFORMED SALES DATA")
-
-    for sale in clean_sales:
-        print(sale)
-
+    print("\nSTEP 3: TRANSFORMING SALES DATA")
     print("Total Transformed Records:", len(clean_sales))
 
-    # Generate summary
-    pipeline_revenue = generate_pipeline_summary(
+    print("\nSTEP 4: SAVING PROCESSED DATA")
+
+    save_processed_sales(clean_sales, OUTPUT_FILE)
+    save_rejected_sales(invalid_sales, REJECTED_FILE)
+
+    print("Cleaned sales data saved successfully!")
+    print("Rejected sales data saved successfully!")
+
+    print("\nSTEP 5: GENERATING PIPELINE SUMMARY")
+
+    generate_pipeline_summary(
         transactions,
         clean_sales,
         invalid_sales
     )
 
-    # Save cleaned records
-    save_processed_sales(clean_sales, OUTPUT_FILE)
+    print("\nSTEP 6: GENERATING DATA QUALITY REPORT")
 
-    print("Cleaned sales data saved successfully!")
-
-    # Save rejected records
-    save_rejected_sales(invalid_sales, REJECTED_FILE)
-
-    print("Rejected sales data saved successfully!")
+    generate_data_quality_report(
+        transactions,
+        valid_sales,
+        invalid_sales
+    )
 
     print("\n===================================")
-    print("PIPELINE EXECUTION COMPLETED")
+    print("EXTRACTION AND QUALITY CHECKS COMPLETED")
     print("===================================")
 
 
