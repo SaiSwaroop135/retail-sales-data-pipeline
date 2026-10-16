@@ -1,5 +1,8 @@
 # Retail Sales Data Pipeline
-# Python 3.10+ recommended
-#
-# No external dependencies required.
-# All modules use the Python standard library.
+# Python 3.12 recommended
+
+# CSV, SQLite, logging, pathlib, and decimal
+# are included in the Python standard library.
+
+# Automated testing
+pytest>=8,<10
