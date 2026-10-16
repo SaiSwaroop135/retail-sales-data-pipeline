@@ -1,48 +1,58 @@
 # Retail Sales Data Pipeline
 
-An end-to-end Python ETL (Extract, Transform, Load) project that processes retail sales transactions, validates data quality, transforms records, loads cleaned data into SQLite, and generates SQL-based sales analytics.
+An end-to-end Python ETL (Extract, Transform, Load) project that ingests retail sales transactions from CSV files, performs data validation and transformation, loads cleaned records into SQLite, and generates SQL-based sales analytics.
 
-The project demonstrates practical data engineering concepts, including modular pipeline development, data validation, database integration, logging, automated testing, and continuous integration using GitHub Actions.
+The project demonstrates practical data engineering skills, including modular ETL development, data quality monitoring, relational database integration, automated testing, structured logging, and continuous integration with GitHub Actions.
 
-## Technologies Used
+## Tech Stack
 
-- **Python 3.12** — ETL development and pipeline orchestration
-- **SQLite & SQL** — Relational data storage and analytical queries
-- **CSV** — Source data ingestion and processed data exports
-- **Python Standard Library** — File handling, decimal calculations, and logging
-- **pytest** — Automated unit testing
-- **GitHub Actions** — Continuous integration and automated test execution
-- **Git & GitHub** — Version control and source code management
+| Category | Technologies |
+|---|---|
+| Programming | Python 3.12 |
+| Database | SQLite, SQL |
+| Data Processing | CSV, Decimal, pathlib |
+| Data Quality | Custom validation, rejection tracking, quality reporting |
+| Testing | pytest |
+| CI/CD | GitHub Actions |
+| Logging | Python logging |
+| Version Control | Git, GitHub |
 
-## Project Architecture
+## ETL Architecture
 
 ```text
-Raw Sales CSV
-      |
-      v
-Data Extraction
-      |
-      v
-Data Validation
-      |
-      +------> Invalid Records
-      |              |
-      |              v
-      |       rejected_sales.csv
-      v
-Data Transformation
-      |
-      v
-clean_sales.csv
-      |
-      v
-SQLite Database
-      |
-      v
-SQL Analytics
-      |
-      v
-Sales Summary & Product Insights
+              RAW SALES DATA
+                 sales.csv
+                     |
+                     v
+              DATA EXTRACTION
+                     |
+                     v
+              DATA VALIDATION
+                     |
+           +---------+---------+
+           |                   |
+           v                   v
+      VALID RECORDS      INVALID RECORDS
+           |                   |
+           v                   v
+    DATA TRANSFORMATION   REJECTION TRACKING
+           |                   |
+           v                   v
+     clean_sales.csv     rejected_sales.csv
+           |
+           v
+      SQLITE DATABASE
+           |
+           v
+       SQL ANALYTICS
+           |
+           v
+      SALES INSIGHTS
+
+     DATA QUALITY REPORTING
+     LOGGING & ERROR HANDLING
+     AUTOMATED TESTING
+     GITHUB ACTIONS CI
 ```
 
 ## Project Structure
@@ -58,11 +68,13 @@ retail-sales-data-pipeline/
 |   |-- raw/
 |   |   |-- sales.csv
 |   |-- processed/
-|       |-- clean_sales.csv (generated)
-|       |-- rejected_sales.csv (generated)
+|   |   |-- clean_sales.csv
+|   |   |-- rejected_sales.csv
+|   |   |-- data_quality_report.csv
+|   |-- retail_sales.db
 |
 |-- logs/
-|   |-- pipeline.log (generated)
+|   |-- pipeline.log
 |
 |-- src/
 |   |-- extract_sales.py
@@ -73,78 +85,125 @@ retail-sales-data-pipeline/
 |
 |-- tests/
 |   |-- test_pipeline.py
+|   |-- test_database.py
 |
 |-- .gitignore
 |-- README.md
 |-- requirements.txt
 ```
 
-The pipeline also creates or updates a local SQLite database during execution. Generated files, logs, and local databases are excluded from Git using `.gitignore`.
+Processed files, the SQLite database, and execution logs are generated locally and excluded from version control.
 
-## ETL Pipeline Workflow
+## ETL Pipeline Implementation
 
-### Step 1: Extract
+### 1. Data Extraction
 
-Reads retail transaction data from `data/raw/sales.csv` using Python's CSV library.
+Reads raw retail sales transactions using Python's built-in CSV library.
 
-### Step 2: Validate
+- Supports structured CSV input.
+- Extracts transaction records for validation.
+- Uses pathlib for portable file management.
+- Checks input-file availability before pipeline execution.
 
-Validates incoming records to identify:
+### 2. Data Validation
+
+Applies validation rules to identify incomplete or invalid transactions.
+
+Validation checks include:
 
 - Missing order IDs
 - Missing product names
-- Invalid quantities or prices
+- Invalid quantity formats
 - Zero or negative quantities
-- Negative prices
+- Invalid price formats
+- Negative or non-finite prices
 
-Valid and invalid records are separated to prevent rejected transactions from entering the cleaned dataset.
+Valid records proceed to transformation, while invalid records are separated for review.
 
-### Step 3: Transform
+### 3. Data Transformation
 
-Transforms valid records by:
+Converts validated transaction fields into appropriate Python data types.
 
-- Converting quantities into integers
-- Converting monetary values into Decimal objects
-- Calculating revenue for each transaction
-- Preparing structured records for downstream processing
+- Converts quantities to integers.
+- Converts monetary values to Decimal.
+- Calculates transaction-level revenue.
+- Produces structured records for downstream loading.
 
-**Revenue = Quantity × Price**
+**Revenue = Quantity × Unit Price**
 
-### Step 4: Save Processed Data
+Decimal arithmetic is used to avoid common floating-point precision issues during monetary calculations.
 
-Exports transformed transactions into `clean_sales.csv`.
+### 4. Data Quality Reporting
 
-Rejected transactions are stored separately in `rejected_sales.csv` for review and troubleshooting.
+Generates a data quality report to summarize validation results and rejected transactions.
 
-### Step 5: Load into SQLite
+The report includes:
 
-Loads validated sales transactions into a relational SQLite database for SQL-based analysis.
+- Total records processed
+- Valid record count
+- Invalid record count
+- Data quality percentage
+- Rejection reasons and their frequencies
 
-### Step 6: Generate Analytics
+**Data Quality Score = (Valid Records / Total Records) × 100**
 
-Executes SQL queries to calculate:
+For the included sample dataset:
 
-- Total revenue
-- Total orders
+| Metric | Result |
+|---|---:|
+| Total Records | 6 |
+| Valid Records | 4 |
+| Rejected Records | 2 |
+| Data Quality Score | 66.67% |
+
+Detected rejection reasons include invalid quantity formats and non-positive quantities.
+
+The report is exported to `data/processed/data_quality_report.csv`.
+
+### 5. Data Loading
+
+Loads validated and transformed transactions into a SQLite relational database.
+
+The database loading implementation includes:
+
+- Automated table creation
+- SQL-based record insertion
+- Parameterized SQL statements
+- Primary-key-based record replacement
+- Transaction commits
+- Record-count verification
+
+The loader uses `INSERT OR REPLACE` to prevent duplicate primary-key rows during repeated loads.
+
+### 6. SQL Analytics
+
+Executes SQL aggregation queries against the SQLite database to generate sales insights.
+
+Analytics include:
+
+- Total sales revenue
+- Total order count
 - Total quantity sold
 - Revenue by product
 - Highest-revenue product
 
-### Step 7: Logging and Error Handling
+### 7. Logging and Error Handling
 
-Uses Python logging to capture pipeline execution events and errors.
+Uses Python's logging module to track ETL execution.
 
-Supports troubleshooting of missing input files, file operations, database errors, and unexpected failures.
+The pipeline logs extraction, validation, transformation, data quality reporting, database loading, and analytics completion.
+
+Error handling covers missing input files, file-system operations, SQLite errors, and unexpected execution failures.
 
 ## Sample Pipeline Results
 
-The included sample dataset contains six retail transactions.
+The included demonstration dataset contains six transactions.
 
 | Metric | Result |
-|---|---|
-| Total Records Extracted | 6 |
-| Valid Records | 4 |
-| Rejected Records | 2 |
+|---|---:|
+| Records Extracted | 6 |
+| Valid Transactions | 4 |
+| Rejected Transactions | 2 |
 | Total Revenue | $43.00 |
 | Total Orders | 4 |
 | Total Quantity Sold | 8 |
@@ -159,14 +218,15 @@ The included sample dataset contains six retail transactions.
 | Milk | $9.00 |
 | Bread | $3.00 |
 
-These results are based on the included sample dataset and demonstrate pipeline functionality rather than large-scale performance.
+These results demonstrate functional correctness on a small sample dataset and do not represent large-scale performance benchmarks.
 
 ## Installation and Setup
 
 ### Prerequisites
 
-- Python 3.12 or compatible Python 3 version
+- Python 3.12
 - Git
+- pip
 
 ### 1. Clone the Repository
 
@@ -181,96 +241,129 @@ cd retail-sales-data-pipeline
 python -m venv .venv
 ```
 
-Activate it on Windows PowerShell:
+Activate on Windows PowerShell:
 
 ```powershell
 .\.venv\Scripts\Activate.ps1
 ```
 
-### 3. Install Testing Dependencies
+### 3. Install Dependencies
 
 ```bash
 python -m pip install -r requirements.txt
 ```
 
-The ETL application uses Python standard-library modules. pytest is included for automated testing.
+The ETL application primarily uses Python standard-library modules. pytest is used for automated testing.
 
-### 4. Run the Complete ETL Pipeline
+### 4. Run the ETL Pipeline
 
 ```bash
 python src/pipeline_runner.py
 ```
 
-The pipeline executes extraction, validation, transformation, processed-file generation, database loading, and analytics.
+The pipeline extracts, validates, transforms, and saves transaction data, generates data quality information, loads records into SQLite, and executes SQL analytics.
 
 ## Automated Testing
 
-The project uses pytest to verify core ETL functionality.
+The project uses pytest to validate ETL processing and database behavior.
 
-Current tests cover:
+**29 automated tests passed locally.**
 
-1. Validation of valid sales records
-2. Rejection of invalid sales records
-3. Revenue calculation during transformation
+Test coverage includes:
 
-Run the tests using:
+- Valid transaction processing
+- Missing mandatory fields
+- Invalid quantities and prices
+- Zero and negative quantities
+- Revenue calculations
+- CSV extraction and export
+- Empty datasets
+- Multiple valid transactions
+- Missing input files
+- SQLite database integration
+- Database loading behavior
+
+Run all tests:
 
 ```bash
 python -m pytest -v
 ```
 
-**Verified local test result: 3 passed.**
+Verified result:
 
-## Continuous Integration with GitHub Actions
+```text
+29 passed
+```
 
-The project includes an automated CI workflow configured in:
+The test suite verifies the implemented functionality against defined test cases. It does not imply complete coverage of all possible inputs or production scenarios.
+
+## Continuous Integration
+
+GitHub Actions automatically executes the project's test suite.
+
+Workflow file:
 
 `.github/workflows/tests.yml`
 
-The workflow runs when changes are pushed to the `main` branch or a pull request targets `main`.
+The workflow runs on:
 
-The workflow:
+- Pushes to the `main` branch
+- Pull requests targeting `main`
 
-1. Checks out the repository.
-2. Configures Python 3.12.
-3. Installs dependencies.
-4. Executes automated pytest tests.
-5. Reports the test results.
+### CI Workflow
 
-The initial GitHub Actions workflow completed successfully.
+1. Check out the repository.
+2. Configure Python 3.12.
+3. Install project dependencies.
+4. Execute pytest.
+5. Report the workflow result.
 
-## Data Quality and Reliability
+The GitHub Actions workflow has completed successfully following the project's testing and database integration updates.
 
-The pipeline includes:
+## Data Quality and Reliability Features
 
-- Input record validation
-- Rejected-record separation
+The project demonstrates several reliability practices:
+
+- Record-level validation
+- Rejected-record isolation
+- Data quality metrics and rejection reporting
 - Decimal-based financial calculations
-- Structured data transformation
-- Logging and exception handling
-- Automated unit testing
-- Continuous integration checks
-
-These features help maintain data accuracy, reproducibility, and maintainability.
+- Parameterized SQL operations
+- Primary-key-based record replacement
+- Execution logging
+- Exception handling
+- Automated unit and integration testing
+- Continuous integration
 
 ## Future Enhancements
 
-- Expand automated test coverage
-- Introduce configuration-driven execution
-- Implement additional data quality checks
-- Add larger datasets and performance testing
-- Integrate cloud object storage
-- Introduce workflow orchestration and scheduling
-- Develop interactive analytics dashboards
+Potential improvements include:
+
+- Configuration-driven pipeline execution
+- Larger datasets and performance benchmarking
+- Incremental data ingestion
+- Stronger database constraints and transaction handling
+- Cloud object storage integration using AWS S3
+- Workflow scheduling with Apache Airflow
+- Data warehouse integration
+- Interactive dashboards using Power BI
+- Expanded edge-case and failure-recovery testing
 
 ## Project Status
 
-**Core ETL implementation complete — testing and CI operational.**
+**Core ETL pipeline implemented and validated against the sample dataset.**
 
-The pipeline has been executed successfully against the sample dataset, three automated tests have passed locally, and the GitHub Actions CI workflow has completed successfully.
+- End-to-end CSV-to-SQLite pipeline operational
+- Data validation and transformation implemented
+- Data quality reporting operational
+- SQL-based analytics implemented
+- Execution logging enabled
+- 29 automated tests passed locally
+- GitHub Actions CI verified successfully
+- Source code maintained in GitHub
 
-Additional testing and enhancements are planned to improve reliability and scalability.
+This project serves as a hands-on demonstration of foundational data engineering practices and provides a base for future cloud and orchestration enhancements.
 
-## GitHub Repository
+## Repository
 
 https://github.com/SaiSwaroop135/retail-sales-data-pipeline
