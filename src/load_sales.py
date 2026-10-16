@@ -2,104 +2,90 @@ import csv
 import sqlite3
 from pathlib import Path
 
-
-# ==========================================
-# PROJECT FILE PATHS
-# ==========================================
-
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 CSV_FILE = BASE_DIR / "data" / "processed" / "clean_sales.csv"
-
 DB_FILE = BASE_DIR / "data" / "retail_sales.db"
 
 
-# ==========================================
-# LOAD SALES DATA INTO SQLITE
-# ==========================================
-
-def load_sales(csv_file=None, db_file=None):
-
-    if csv_file is None:
-        csv_file = CSV_FILE
-
-    if db_file is None:
-        db_file = DB_FILE
-
+def load_sales(csv_file=CSV_FILE, db_file=DB_FILE):
     csv_file = Path(csv_file)
     db_file = Path(db_file)
 
-    # Check that the input file exists
     if not csv_file.is_file():
         raise FileNotFoundError(
-            f"Cleaned sales CSV file not found: {csv_file}"
+            f"Cleaned sales file not found: {csv_file}"
         )
 
-    # Create database directory if necessary
+    # Read and validate all input rows before modifying the database.
+    with csv_file.open("r", newline="", encoding="utf-8") as file:
+        reader = csv.DictReader(file)
+
+        required_columns = {
+            "order_id", "product", "quantity", "price", "revenue"
+        }
+
+        if not required_columns.issubset(reader.fieldnames or []):
+            raise ValueError("Cleaned CSV is missing required columns")
+
+        records = [
+            (
+                int(row["order_id"]),
+                row["product"],
+                int(row["quantity"]),
+                row["price"],
+                row["revenue"]
+            )
+            for row in reader
+        ]
+
     db_file.parent.mkdir(parents=True, exist_ok=True)
 
-    # Automatically close connection
+    connection = sqlite3.connect(db_file)
+
     try:
-        with sqlite3.connect(db_file) as connection:
+        # Create the table if it does not exist.
+        connection.execute("""
+            CREATE TABLE IF NOT EXISTS sales (
+                order_id INTEGER PRIMARY KEY,
+                product TEXT NOT NULL,
+                quantity INTEGER NOT NULL,
+                price NUMERIC NOT NULL,
+                revenue NUMERIC NOT NULL
+            )
+        """)
 
-            cursor = connection.cursor()
+        # Start a transaction for the full refresh.
+        connection.execute("BEGIN")
 
-            # Create sales table
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS sales (
-                    order_id INTEGER PRIMARY KEY,
-                    product TEXT NOT NULL,
-                    quantity INTEGER NOT NULL,
-                    price NUMERIC NOT NULL,
-                    revenue NUMERIC NOT NULL
-                )
-            """)
+        # Remove records from the previous load.
+        connection.execute("DELETE FROM sales")
 
-            # Read cleaned sales CSV
-            with open(
-                csv_file,
-                "r",
-                newline="",
-                encoding="utf-8-sig"
-            ) as file:
+        # Insert the latest cleaned records.
+        connection.executemany("""
+            INSERT INTO sales
+            (order_id, product, quantity, price, revenue)
+            VALUES (?, ?, ?, ?, ?)
+        """, records)
 
-                reader = csv.DictReader(file)
+        connection.commit()
 
-                for row in reader:
+        total_records = connection.execute(
+            "SELECT COUNT(*) FROM sales"
+        ).fetchone()[0]
 
-                    cursor.execute("""
-                        INSERT OR REPLACE INTO sales
-                        (order_id, product, quantity, price, revenue)
-                        VALUES (?, ?, ?, ?, ?)
-                    """, (
-                        int(row["order_id"]),
-                        row["product"],
-                        int(row["quantity"]),
-                        row["price"],
-                        row["revenue"]
-                    ))
+        print("DATABASE LOAD COMPLETED")
+        print("Total Records in Database:", total_records)
 
-            # Save changes
-            connection.commit()
+        return total_records
 
-            # Verify loaded records
-            cursor.execute("SELECT COUNT(*) FROM sales")
-
-            total_records = cursor.fetchone()[0]
-
-    except (sqlite3.Error, OSError, ValueError, KeyError):
-        print("DATABASE LOAD FAILED")
+    except Exception:
+        connection.rollback()
         raise
 
-    print("DATABASE LOAD COMPLETED")
-    print("Total Records in Database:", total_records)
+    finally:
+        connection.close()
 
-    return total_records
-
-
-# ==========================================
-# RUN DIRECTLY
-# ==========================================
 
 if __name__ == "__main__":
     load_sales()

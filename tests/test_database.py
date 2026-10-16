@@ -125,3 +125,124 @@ def test_missing_csv_file(tmp_path):
         load_sales(csv_file, db_file)
 
     assert not db_file.exists()
+
+
+    
+import csv
+import sqlite3
+
+from load_sales import load_sales
+
+
+def write_sales_csv(path, records):
+    with path.open("w", newline="", encoding="utf-8") as file:
+        writer = csv.DictWriter(
+            file,
+            fieldnames=[
+                "order_id", "product", "quantity",
+                "price", "revenue"
+            ]
+        )
+        writer.writeheader()
+        writer.writerows(records)
+
+
+def test_repeated_database_load(tmp_path):
+    csv_file = tmp_path / "sales.csv"
+    db_file = tmp_path / "sales.db"
+
+    records = [{
+        "order_id": "1001",
+        "product": "Milk",
+        "quantity": "2",
+        "price": "4.50",
+        "revenue": "9.00"
+    }]
+
+    write_sales_csv(csv_file, records)
+
+    load_sales(csv_file, db_file)
+    load_sales(csv_file, db_file)
+
+    with sqlite3.connect(db_file) as conn:
+        count = conn.execute(
+            "SELECT COUNT(*) FROM sales"
+        ).fetchone()[0]
+
+    assert count == 1
+
+
+def test_removed_source_records(tmp_path):
+    csv_file = tmp_path / "sales.csv"
+    db_file = tmp_path / "sales.db"
+
+    records = [
+        {
+            "order_id": "1001",
+            "product": "Milk",
+            "quantity": "2",
+            "price": "4.50",
+            "revenue": "9.00"
+        },
+        {
+            "order_id": "1002",
+            "product": "Coffee",
+            "quantity": "1",
+            "price": "8.00",
+            "revenue": "8.00"
+        }
+    ]
+
+    write_sales_csv(csv_file, records)
+    load_sales(csv_file, db_file)
+
+    # Remove Coffee from the source.
+    write_sales_csv(csv_file, records[:1])
+    load_sales(csv_file, db_file)
+
+    with sqlite3.connect(db_file) as conn:
+        rows = conn.execute(
+            "SELECT order_id FROM sales"
+        ).fetchall()
+
+    assert rows == [(1001,)]
+
+
+def test_database_rollback_on_failure(tmp_path):
+    csv_file = tmp_path / "sales.csv"
+    db_file = tmp_path / "sales.db"
+
+    original = [{
+        "order_id": "1001",
+        "product": "Milk",
+        "quantity": "2",
+        "price": "4.50",
+        "revenue": "9.00"
+    }]
+
+    write_sales_csv(csv_file, original)
+    load_sales(csv_file, db_file)
+
+    # Duplicate primary keys trigger an insertion error.
+    invalid = [
+        original[0],
+        {
+            **original[0],
+            "product": "Coffee"
+        }
+    ]
+
+    write_sales_csv(csv_file, invalid)
+
+    import pytest
+
+    with pytest.raises(sqlite3.IntegrityError):
+        load_sales(csv_file, db_file)
+
+    # Previously committed records must remain intact.
+    with sqlite3.connect(db_file) as conn:
+        rows = conn.execute(
+            "SELECT order_id, product FROM sales"
+        ).fetchall()
+
+    assert rows == [(1001, "Milk")]
