@@ -1,0 +1,14 @@
+def calculate_revenue(quantity, price):
+    revenue = quantity * price
+    return revenue
+
+
+milk_revenue = calculate_revenue(2, 4.50)
+bread_revenue = calculate_revenue(1, 3.00)
+
+print("Milk Revenue: $", format(milk_revenue, ".2f"))
+print("Bread Revenue: $", format(bread_revenue, ".2f"))
+
+coffee_revenue = calculate_revenue(2, 8.00)
+
+print("Coffee Revenue: $", format(coffee_revenue, ".2f"))
