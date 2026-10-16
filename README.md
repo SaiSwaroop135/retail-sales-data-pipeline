@@ -169,11 +169,25 @@ The database loading implementation includes:
 - Automated table creation
 - SQL-based record insertion
 - Parameterized SQL statements
-- Primary-key-based record replacement
+- Transactional full-refresh loading
 - Transaction commits
 - Record-count verification
 
-The loader uses `INSERT OR REPLACE` to prevent duplicate primary-key rows during repeated loads.
+The loader uses a transactional DELETE and INSERT strategy to synchronize the SQLite database with the latest validated dataset. If an insertion fails, the transaction is rolled back to preserve previously committed records.
+
+### Transactional Database Loading and Reliability
+
+The SQLite loader uses a transactional full-refresh strategy to keep the database synchronized with the latest validated sales data.
+
+Key features include:
+
+- **Idempotent execution:** Repeated loads of the same dataset produce consistent database results without duplicate records.
+- **Source synchronization:** Records removed from the source dataset are removed from the database during the next successful load.
+- **Transaction management:** Database modifications are committed only after all records are inserted successfully.
+- **Rollback protection:** Failed insertions trigger a transaction rollback, preserving previously committed sales records.
+- **Automated verification:** Dedicated pytest tests validate repeated loading, source synchronization, and transaction rollback.
+
+These improvements provide a more reliable foundation for repeatable ETL processing.
 
 ### 6. SQL Analytics
 
